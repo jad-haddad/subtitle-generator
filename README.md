@@ -8,21 +8,45 @@ Transforms audio/video files (wav, mp3, m4a, mp4, mkv, etc.) into properly-forma
 
 ## Quick Start
 
-### With Docker Compose (Recommended)
+### Deploy with Docker Compose (Production)
+
+Copy-paste this `docker-compose.yml` on your server:
+
+```yaml
+services:
+  subtitle-generator:
+    image: ghcr.io/jad-haddad/subtitle-generator:latest
+    container_name: subtitle-generator
+    ports:
+      - "8001:8000"
+    volumes:
+      # Mount your Jellyfin/media library here
+      # The service needs read access to video files and write access
+      # to save .srt files next to them
+      - /mnt/media:/media:rw
+    environment:
+      - SG_GROQ_API_KEY=${SG_GROQ_API_KEY}
+      - SG_GROQ_MODEL=whisper-large-v3-turbo
+      - SG_GROQ_CONCURRENCY=5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+```
+
+Then run:
 
 ```bash
 # Set your Groq API key
 export SG_GROQ_API_KEY=gsk_...
 
 # Start the service
-docker compose up --build -d
+docker compose up -d
 
-# The API is available at http://localhost:8000
-```
-
-```bash
-# Submit a file using the CLI client
-uv run subgen /path/to/The.Lion.King.mp3 -l English
+# The API is available at http://localhost:8001
 ```
 
 ### Local Development
@@ -68,23 +92,26 @@ uv run subgen --help
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/jobs` | Submit a new audio/video file for subtitle generation |
+| `POST` | `/jobs/from-path` | Submit a subtitle job from a media file path |
 | `GET`  | `/jobs` | List all active (non-expired) jobs |
 | `GET`  | `/jobs/{job_id}` | Get status and progress of a job |
-| `GET`  | `/jobs/{job_id}/srt` | Download the generated `.srt` file |
+| `GET`  | `/jobs/{job_id}/srt` | Confirm SRT output location |
 | `GET`  | `/health` | Health check |
 
 ---
 
 ## Example Requests
 
-### Submit a file
+### Submit a job (for Jellyfin integration)
 
 ```bash
-curl -X POST http://localhost:8000/jobs \
-  -F "file=@/path/to/The.Lion.King.mp3" \
-  -F "language=English" \
-  -F "max_chars_per_line=42"
+curl -X POST http://localhost:8001/jobs/from-path \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/media/movies/Movie (2023)/Movie (2023).mkv",
+    "language": "en",
+    "max_chars_per_line": 42
+  }'
 ```
 
 Response (202 Accepted):
@@ -92,40 +119,42 @@ Response (202 Accepted):
 {
   "job_id": "a1b2c3d4-...",
   "status": "pending",
+  "output_path": "/media/movies/Movie (2023)/Movie (2023).en.srt",
   "created_at": "2026-04-28T10:00:00Z"
 }
+```
+
+Response (409 Conflict - already exists):
+```json
+{"detail": "Subtitle already exists: Movie (2023).en.srt"}
 ```
 
 ### Poll for status
 
 ```bash
-curl http://localhost:8000/jobs/a1b2c3d4-...
+curl http://localhost:8001/jobs/a1b2c3d4-...
 ```
 
 Response:
 ```json
 {
   "job_id": "a1b2c3d4-...",
-  "status": "completed",
-  "progress_pct": 100,
-  "filename": "The.Lion.King.mp3",
-  "language": "English",
+  "status": "processing",
+  "progress_pct": 65,
+  "stage": "transcribing chunk 3/5",
+  "media_path": "/media/movies/Movie (2023)/Movie (2023).mkv",
+  "output_path": "/media/movies/Movie (2023)/Movie (2023).en.srt",
+  "language": "en",
   "error": null,
-  "download_url": "/jobs/a1b2c3d4-.../srt"
+  "created_at": "2026-04-28T10:00:00Z",
+  "updated_at": "2026-04-28T10:02:15Z"
 }
-```
-
-### Download SRT
-
-```bash
-curl -O -J http://localhost:8000/jobs/a1b2c3d4-.../srt
-# Saved as: The.Lion.King.srt
 ```
 
 ### List active jobs
 
 ```bash
-curl http://localhost:8000/jobs
+curl http://localhost:8001/jobs
 ```
 
 ---
@@ -134,12 +163,13 @@ curl http://localhost:8000/jobs
 
 ```
 audio input
-  → FFmpeg normalization (16kHz mono MP3, 32kbps)
-  → Split if >25MB (Groq file size limit)
+  → FFmpeg normalization (16kHz mono MP3, 24kbps)
+  → Split if >10MB (Groq safe chunk size)
   → Groq Whisper API transcription (word-level timestamps)
   → Timestamp merging across chunks
   → SRT segmentation & formatting
-  → .srt file output
+  → .srt file written next to input
+  → Temp files cleaned up
 ```
 
 ---
@@ -207,6 +237,7 @@ ty check
 ## Notes
 
 - **No local ML**: All transcription is done via the Groq API. The service requires only FFmpeg and a Groq API key.
-- **File size limit**: Groq accepts files up to 25MB. Longer audio is automatically split into chunks and timestamps are merged.
+- **Jellyfin integration**: Designed to run alongside Jellyfin with the same media volume mount. The service writes `.srt` files directly next to the media files using Jellyfin-compatible naming (`{movie}.{lang}.srt`).
+- **File size handling**: Audio is normalized to 24kbps MP3 and automatically split into ~10MB chunks for Groq. Timestamps are merged seamlessly.
 - **Word-level timestamps**: Groq's `verbose_json` response with `timestamp_granularities=["word"]` provides per-word timestamps natively — no forced alignment needed.
 - **Queue**: Single sequential worker per process. For horizontal scaling, run multiple container instances behind a load balancer.
