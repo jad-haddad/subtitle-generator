@@ -14,7 +14,7 @@ from subtitle_generator.models import (
     JobSubmitResponse,
     TranscriptionOptions,
 )
-from subtitle_generator.queue import JobQueue
+from subtitle_generator.queue import JobQueue, _to_iso639_1
 from subtitle_generator.services.audio import AudioFormatError, AudioProcessor
 from subtitle_generator.utils.logger import get_logger
 
@@ -41,7 +41,16 @@ async def create_job_from_path(
     Returns 202 Accepted with job_id to poll for status.
     """
     media_path = Path(body.path)
-    logger.info("job_request_from_path", path=str(media_path), language=body.language)
+
+    # Convert language code to ISO 639-1 for Groq API compatibility
+    # This handles 3-letter codes like "fra" -> "fr"
+    language_iso639_1 = _to_iso639_1(body.language)
+    logger.info(
+        "job_request_from_path",
+        path=str(media_path),
+        language=body.language,
+        converted_language=language_iso639_1,
+    )
 
     # Validate that the file exists inside the container
     if not media_path.exists():
@@ -58,8 +67,8 @@ async def create_job_from_path(
 
     # Determine output path (None if auto-detect; we'll compute it after transcription)
     output_path: Path | None = None
-    if body.language:
-        output_path = JobQueue._srt_path(media_path, body.language)
+    if language_iso639_1:
+        output_path = JobQueue._srt_path(media_path, language_iso639_1)
         if output_path.exists():
             raise HTTPException(
                 status_code=409,
@@ -67,7 +76,7 @@ async def create_job_from_path(
             )
 
     options = TranscriptionOptions(
-        language=body.language,
+        language=language_iso639_1,
         max_chars_per_line=body.max_chars_per_line,
     )
     job = await queue.submit(media_path, output_path, options)
