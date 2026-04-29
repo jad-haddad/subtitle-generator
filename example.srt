@@ -1,0 +1,16 @@
+1
+00:00:01,000 --> 00:00:03,500
+Hello, how are you?
+
+2
+00:00:03,500 --> 00:00:06,000
+I'm doing great today.
+
+3
+00:00:06,500 --> 00:00:09,200
+This is an example subtitle
+that spans two lines.
+
+4
+00:00:09,500 --> 00:00:13,000
+Thanks for using the subtitle generator.

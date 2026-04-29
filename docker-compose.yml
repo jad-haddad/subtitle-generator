@@ -1,0 +1,35 @@
+services:
+  subtitle-generator:
+    build: .
+    ports:
+      - "8001:8000"
+    volumes:
+      # Mount your Jellyfin media library here so the service can read
+      # movie files and write .srt files next to them.
+      # Adjust the host path to match your Jellyfin setup.
+      - ./media:/media:rw
+    env_file:
+      - .env
+    environment:
+      # Groq API settings
+      - SG_GROQ_MODEL=whisper-large-v3-turbo
+      - SG_GROQ_CONCURRENCY=5
+
+      # Audio processing
+      - SG_MAX_FILE_SIZE_MB=500
+      - SG_CHUNK_DURATION_S=600
+
+      # API settings
+      - SG_API_HOST=0.0.0.0
+      - SG_API_PORT=8000
+
+      # Job queue
+      - SG_JOB_RESULT_TTL_SECONDS=3600
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+

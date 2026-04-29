@@ -1,0 +1,46 @@
+# Version control
+.git
+.gitignore
+
+# Local virtual environment (platform-specific, do not copy into image)
+.venv
+
+# Model caches
+models/
+*.pth
+*.onnx
+*.bin
+*.safetensors
+
+# Job artifacts
+uploads/
+results/
+*.srt
+
+# Editors
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+tests/
+.pytest_cache/
+
+# Documentation
+README.md
+ROADMAP.md
+example.srt
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment
+.env
+.env.local
